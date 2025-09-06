@@ -22,9 +22,17 @@ class Sensors():
         
         
     def initAhtxSensor(self):
-        self.ahtx.sensor = ahtx0.AHT20(self.ahtx.I2C)
-        self._temperature = self.ahtx.sensor.temperature
-        self._humidity = self.ahtx.sensor.relative_humidity
+        try:
+            self.ahtx.sensor = ahtx0.AHT20(self.ahtx.I2C)
+            self._temperature = self.ahtx.sensor.temperature
+            self._humidity = self.ahtx.sensor.relative_humidity
+            print("✅ AHT20 sensor initialized successfully")
+        except Exception as e:
+            print(f"❌ AHT20 sensor initialization failed: {e}")
+            # Create dummy sensor values
+            self.ahtx.sensor = None
+            self._temperature = 25.0
+            self._humidity = 50.0
     
     def initVocSensor(self):
         #           Special case for our VOC sensor used, it is for calibration.
@@ -34,11 +42,17 @@ class Sensors():
     
     @property
     def temperature(self):
-        return self.ahtx.sensor.temperature
+        if self.ahtx.sensor is not None:
+            return self.ahtx.sensor.temperature
+        else:
+            return self._temperature
     
     @property
     def humidity(self):
-        return self.ahtx.sensor.relative_humidity
+        if self.ahtx.sensor is not None:
+            return self.ahtx.sensor.relative_humidity
+        else:
+            return self._humidity
     
     def updateAirQualityIndex(self, interval):
         currentValue = self.voc.analog_def.read_u16() * self.voc.conversion

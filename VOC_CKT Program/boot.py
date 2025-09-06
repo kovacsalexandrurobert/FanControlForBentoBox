@@ -1,18 +1,63 @@
 import json
 import time
+import sys
 from display_service import DisplayService
 from InitService import InitService
 from os import uname
 
+# Global BLE instance for cleanup
+ble_instance = None
+
+def check_development_mode():
+    """Check if we should wait for development mode"""
+    try:
+        # Check if development mode file exists
+        try:
+            with open("dev_mode.txt", "r") as f:
+                dev_mode = f.read().strip().lower()
+                if dev_mode in ['true', '1', 'yes', 'on']:
+                    print("🔧 Development Mode Detected")
+                    print("⏸️  Boot paused for development...")
+                    print("   Connect with Thonny and run: import boot; boot.main()")
+                    print("   Or delete dev_mode.txt and restart for normal operation")
+                    
+                    # Wait indefinitely for development
+                    while True:
+                        time.sleep(1)
+        except OSError:
+            # dev_mode.txt doesn't exist, proceed normally
+            pass
+        
+        # Normal operation - just a short delay
+        print("🔧 Starting in 2 seconds...")
+        print("   (Create 'dev_mode.txt' file to pause for development)")
+        time.sleep(2)
+        return True
+            
+    except Exception as e:
+        print(f"⚠️  Development check failed: {e}")
+        print("⏰ Proceeding with automatic start...")
+        return True
+
 def main():
     """Main boot function that can be interrupted with Ctrl+C"""
+    global ble_instance
+    
     with open("config.json") as f:
         config = json.load(f)
     userCfg = {}
     isInitialised = False 
     connection_state = False
     displayCfg = config.get('display')
-    display = DisplayService(connection_state, displayCfg)
+    
+    # Initialize display service with error handling
+    try:
+        display = DisplayService(connection_state, displayCfg)
+        print("✅ Display service initialized successfully")
+    except Exception as e:
+        print(f"❌ Display service initialization failed: {e}")
+        print("   Continuing without display...")
+        display = None
     
     try: 
         with open("userConfig.json") as f:
@@ -28,9 +73,15 @@ def main():
         print("   Continue Device Setup!")
 
     splashLogo = userCfg.get('splashLogo') or config['display']['splashLogo']    
-    # Display the splash screen
-    display.displayProgressBar(displayCfg, '', splashLogo, True )
-    display.clearDisplay()
+    # Display the splash screen (if display is available)
+    if display is not None:
+        try:
+            display.displayProgressBar(displayCfg, '', splashLogo, True )
+            display.clearDisplay()
+        except Exception as e:
+            print(f"❌ Error displaying splash screen: {e}")
+    else:
+        print("⚠️  Display not available, skipping splash screen")
 
     # Check if we have extended network and Bluetooth LE capabilities with Pi Pico W if not we continue with basic capabilities.
     if uname()[4] == 'Raspberry Pi Pico W with RP2040':
@@ -49,10 +100,44 @@ def main():
             print(f"   Device UUID: {device_uuid}")
             from ble_simple_peripheral import BLESimplePeripheral
             
-            ble = bluetooth.BLE()
-            sp = BLESimplePeripheral(ble, name)
-            InitService(sp)
-            print("🚀 BLE InitService started. Press Ctrl+C to stop.")
+            try:
+                ble_instance = bluetooth.BLE()
+                print("🚀 BLE object created.")
+                
+                # Activate BLE first
+                ble_instance.active(True)
+                print("🚀 BLE activated.")
+                
+                # Small delay to ensure BLE is properly initialized
+                time.sleep(0.1)
+                
+                # Verify BLE is active
+                if not ble_instance.active():
+                    raise Exception("BLE failed to activate")
+                print("✅ BLE activation verified")
+                
+                # Try to configure GAP name (optional)
+                try:
+                    ble_instance.config(gap_name=name)
+                    print("🚀 BLE GAP name configured.")
+                except Exception as config_error:
+                    print(f"⚠️  BLE GAP name config warning: {config_error}")
+                    print("   Continuing without GAP name configuration...")
+                
+                sp = BLESimplePeripheral(ble_instance, name)
+                print("🚀 BLE simple peripheral started.")
+                InitService(sp)
+                print("🚀 BLE InitService started. Press Ctrl+C to stop.")
+            except Exception as e:
+                print(f"❌ BLE initialization failed: {e}")
+                print("   Continuing without BLE...")
+                # Ensure BLE is deactivated if there was an error
+                try:
+                    if ble_instance and ble_instance.active():
+                        ble_instance.active(False)
+                        print("   BLE deactivated due to error")
+                except:
+                    pass
 
     else:
     #     TO DO implement splashLogo selection with internal button. No WiFi or Bluetooth LE capabilities available.
@@ -60,13 +145,19 @@ def main():
 
 if __name__ == "__main__":
     try:
+        # Development mode check - gives you time to connect with Thonny
+        check_development_mode()
+        
         print("🔧 Starting SmartBento Device Boot Process...")
         print("   Press Ctrl+C to stop execution")
         main()
         
         # Keep running until interrupted
-        while True:
-            time.sleep(1)
+        try:
+            while True:
+                time.sleep(0.1)  # Shorter sleep for more responsive interrupt handling
+        except KeyboardInterrupt:
+            raise  # Re-raise the KeyboardInterrupt to be caught by outer try-catch
             
     except KeyboardInterrupt:
         print("\n🛑 Boot process interrupted by user (Ctrl+C)")
@@ -75,11 +166,9 @@ if __name__ == "__main__":
         # Clean up any resources if needed
         try:
             # Stop BLE if it was started
-            import bluetooth
-            ble = bluetooth.BLE()
-            if ble.active():
+            if ble_instance and ble_instance.active():
                 print("   Stopping BLE...")
-                ble.active(False)
+                ble_instance.active(False)
         except:
             pass
             

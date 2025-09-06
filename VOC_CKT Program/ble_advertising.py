@@ -3,6 +3,8 @@
 from micropython import const
 import struct
 import bluetooth
+import machine
+import ubinascii
 
 # Advertising payloads are repeated packets of the following form:
 #   1 byte data length (N + 1)
@@ -19,9 +21,12 @@ _ADV_TYPE_UUID32_MORE = const(0x4)
 _ADV_TYPE_UUID128_MORE = const(0x6)
 _ADV_TYPE_APPEARANCE = const(0x19)
 
+flash_id = ubinascii.hexlify(machine.unique_id()).decode()
+device_uuid = flash_id[-4:].upper()
+name = f"SmartBento-{device_uuid}"
 
 # Generate a payload to be passed to gap_advertise(adv_data=...).
-def advertising_payload(limited_disc=False, br_edr=False, name="SmartBentoBox", services=None, appearance=0):
+def advertising_payload(limited_disc=False, br_edr=False, name="SmartBentoBox", services=None, appearance=1):
     payload = bytearray()
 
     def _append(adv_type, value):
@@ -34,11 +39,17 @@ def advertising_payload(limited_disc=False, br_edr=False, name="SmartBentoBox", 
     )
 
     if name:
+        print(f"🔧 Using provided device name: {name} in ble_advertising")
+        print(f"   Name length: {len(name)} characters")
+        print(f"   Name bytes: {name.encode('utf-8').hex()}")
         _append(_ADV_TYPE_NAME, name)
-
+    else:
+        print(f"🔧 Using default device name: {name}")
     if services:
+        print(f"🔧 Adding {len(services)} service(s) to advertising payload")
         for uuid in services:
             b = bytes(uuid)
+            print(f"   Service UUID: {uuid} (length: {len(b)} bytes)")
             if len(b) == 2:
                 _append(_ADV_TYPE_UUID16_COMPLETE, b)
             elif len(b) == 4:
@@ -50,6 +61,8 @@ def advertising_payload(limited_disc=False, br_edr=False, name="SmartBentoBox", 
     if appearance:
         _append(_ADV_TYPE_APPEARANCE, struct.pack("<h", appearance))
 
+    print(f"🔧 Final advertising payload: {len(payload)} bytes")
+    print(f"   Payload hex: {payload.hex()}")
     return payload
 
 
@@ -81,7 +94,7 @@ def decode_services(payload):
 
 def demo():
     payload = advertising_payload(
-        name="micropython",
+        name=name,
         services=[bluetooth.UUID(0x181A), bluetooth.UUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")],
     )
     print(payload)

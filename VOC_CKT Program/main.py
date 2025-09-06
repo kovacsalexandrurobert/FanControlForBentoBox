@@ -20,8 +20,24 @@ with open("config.json") as f:
     config = json.load(f)
     
 connection_state = False
-sensors = Sensors(config['sensors'])
-display = DisplayService(connection_state, config['display'])
+
+# Initialize sensors with error handling
+try:
+    sensors = Sensors(config['sensors'])
+    print("✅ Sensors initialized successfully")
+except Exception as e:
+    print(f"❌ Sensor initialization failed: {e}")
+    print("   Continuing without sensors...")
+    sensors = None
+
+# Initialize display with error handling
+try:
+    display = DisplayService(connection_state, config['display'])
+    print("✅ Display service initialized successfully")
+except Exception as e:
+    print(f"❌ Display service initialization failed: {e}")
+    print("   Continuing without display...")
+    display = None
 
 # BLE and InitService are already initialized in boot.py
 # No need to create duplicate instances here
@@ -56,9 +72,17 @@ led_state = 0
 
 async def main():
     global count, seconds, voc_level_avg, voc_level_sum, voc_def, show_temp, debounce_time, led_state, display, connection_state
-    second_thread = _thread.start_new_thread(display.main, (sensors,)) 
+    
+    # Start display thread only if display is available
+    if display is not None and sensors is not None:
+        second_thread = _thread.start_new_thread(display.main, (sensors,))
+    else:
+        print("⚠️  Display or sensors not available, skipping display thread")
+    
     # Create a Bluetooth Low Energy (BLE) object
-    webInterface = WebServer(sensors.temperature, pico_led, led_state, connection_state, 'iPhone 13 Pro Max', 'zakarias')
+    # Use default temperature if sensors are not available
+    temp = sensors.temperature if sensors is not None else 25.0
+    webInterface = WebServer(temp, pico_led, led_state, connection_state, 'iPhone 13 Pro Max', 'zakarias')
     def serveWrapper(reader, writer):
         return webInterface.serve(reader, writer, led_state)
 #     task_connect = asyncio.create_task(webInterface.connect())
@@ -69,19 +93,25 @@ async def main():
     # Main Loop
     while True:
         connection_state = webInterface.isConnected
-        display.setConnectionState(connection_state)
-        if count <= config['sensors']['voc']['avg_interval']:
-            count += 1
-            sensors.updateAirQualityIndex(count)
+        if display is not None:
+            display.setConnectionState(connection_state)
+        
+        # Only update sensors if they are available
+        if sensors is not None:
+            if count <= config['sensors']['voc']['avg_interval']:
+                count += 1
+                sensors.updateAirQualityIndex(count)
+            else:
+                count = 1
+                
+            if sensors.airQualityIndex >= sensors.voc.threshold:
+                fan_relay.on() #relay pin high
+                print('Fan ON')
+            else: 
+                print('Fan Off')
+                fan_relay.off()
         else:
-            count = 1
-            
-        if sensors.airQualityIndex >= sensors.voc.threshold:
-            fan_relay.on() #relay pin high
-            print('Fan ON')
-        else: 
-            print('Fan Off')
-            fan_relay.off()
+            print("⚠️  Sensors not available, fan control disabled")
 #         if not webInterface.isConnected:  # If not connected to Wi-Fi
 #             webInterface.disconnect()       # Disconnect from current Wi-Fi network
 #             webInterface.connect()    # Reconnect to Wi-Fi network

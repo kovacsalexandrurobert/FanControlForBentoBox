@@ -12,19 +12,24 @@ from SplashLogos import Logos
 class DisplayService():
     def __init__(self, connection_state, config):
         print('Display conf: ', config) 
-        self.I2C = I2C(config['I2Channel'],sda=Pin(config['sda_pin']), scl=Pin(config['scl_pin']), freq=config['freq'])
-        self.width = config['width']
-        self.config = config
-        self.availableSplashLogo = Logos()
-        self.height = config['height']
-        self.defaultSplashLogo = config['splashLogo']
-        self.display = SSD1306_I2C(self.width, self.height, self.I2C)
-        self.displayFormat = writer.Writer(self.display, freesans20)
-        self.setTextPos = self.displayFormat.set_textpos
-        self.applyText = self.displayFormat.printstring
-        self.show = self.display.show
-        
-        self._connectionState = connection_state
+        try:
+            self.I2C = I2C(config['I2Channel'],sda=Pin(config['sda_pin']), scl=Pin(config['scl_pin']), freq=config['freq'])
+            self.width = config['width']
+            self.config = config
+            self.availableSplashLogo = Logos()
+            self.height = config['height']
+            self.defaultSplashLogo = config['splashLogo']
+            self.display = SSD1306_I2C(self.width, self.height, self.I2C)
+            self.displayFormat = writer.Writer(self.display, freesans20)
+            self.setTextPos = self.displayFormat.set_textpos
+            self.applyText = self.displayFormat.printstring
+            self.show = self.display.show
+            
+            self._connectionState = connection_state
+            print("✅ Display hardware initialized successfully")
+        except Exception as e:
+            print(f"❌ Display hardware initialization failed: {e}")
+            raise e
         
     def clearDisplay(self, value=0):
         self.display.invert(0)
